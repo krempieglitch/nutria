@@ -49,22 +49,53 @@ def diet():
     result = coerce_json(openai_chat([{"role":"system","content":sys},{"role":"user","content":json.dumps(profile, ensure_ascii=False)}]))
     return jsonify(result)
 
+from flask import Flask, request, jsonify
+import requests
+import json
+
+app = Flask(__name__)
+
 @app.route("/analyze-photo", methods=["POST"])
 def analyze_photo():
-    data = request.get_json(force=True)
-    url = data.get("image_url")
-    if not url:
-        return jsonify({"error": "image_url required"}), 400
-    sys = ("Ты нутрициолог. Определи продукты на фото, массу и калории. Верни JSON "
-           "как в /count-calories.")
-    messages = [{"role":"system","content":sys},{"role":"user","content":[
-        {"type":"text","text":"Определи продукты по фото."},
-        {"type":"image_url","image_url":{"url":url}}
-    ]}]
-    r = requests.post(OPENAI_CHAT_URL, headers={"Authorization":f"Bearer {OPENAI_API_KEY}","Content-Type":"application/json"},
-                      json={"model":"gpt-4o-mini","messages":messages}, timeout=180)
-    content = r.json()["choices"][0]["message"]["content"]
-    return jsonify(coerce_json(content))
+    try:
+        data = request.get_json()
+        print("DEBUG: Получены данные от BotPenguin:", data)
+
+        image_url = data.get("image_url")
+        if not image_url:
+            return jsonify({"error": "Не получена ссылка на изображение"}), 400
+
+        # Запрос к модели (пример для Hugging Face)
+        headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+        payload = {
+            "inputs": image_url,
+        }
+        r = requests.post(
+            "https://api-inference.huggingface.co/models/SOME_MODEL",
+            headers=headers,
+            json=payload,
+        )
+
+        print("DEBUG: Ответ от модели:", r.text)
+
+        try:
+            response_json = r.json()
+        except Exception as e:
+            return jsonify({"error": f"Не удалось прочитать JSON: {e}"}), 500
+
+        # Проверяем, что есть ключ choices
+        if "choices" not in response_json:
+            return jsonify({
+                "error": "Модель вернула неожиданный ответ",
+                "raw_response": response_json
+            }), 500
+
+        content = response_json["choices"][0]["message"]["content"]
+        return jsonify({"result": content})
+
+    except Exception as e:
+        print("DEBUG: Ошибка в analyze_photo:", str(e))
+        return jsonify({"error": f"Серверная ошибка: {str(e)}"}), 500
 
 @app.route("/add-entry", methods=["POST"])
 def add_entry():
